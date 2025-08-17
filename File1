@@ -1,77 +1,79 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Skeleton Only Tracker</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <meta charset="UTF-8">
+  <title>Skeleton Tracker</title>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      background: black;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      margin: 0 auto;
+      background: black;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
 </head>
-<body style="margin:0; background:black; overflow:hidden;">
-  <canvas id="output" width="640" height="480"></canvas>
+<body>
+  <video id="video" autoplay playsinline style="display:none;"></video>
+  <canvas id="canvas"></canvas>
 
   <script>
-    async function run() {
-      const video = document.createElement("video");
-      video.width = 640;
-      video.height = 480;
-      video.autoplay = true;
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
 
-      // Ask for webcam
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480 }
+      });
       video.srcObject = stream;
+      return new Promise(resolve => {
+        video.onloadedmetadata = () => resolve(video);
+      });
+    }
+
+    async function main() {
+      await setupCamera();
+      video.play();
 
       const detector = await poseDetection.createDetector(
         poseDetection.SupportedModels.MoveNet,
         { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
       );
 
-      const canvas = document.getElementById("output");
-      const ctx = canvas.getContext("2d");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
 
-      async function detect() {
+      async function render() {
+        const poses = await detector.estimatePoses(video);
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = "black";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        const poses = await detector.estimatePoses(video);
-
-        if (poses.length > 0) {
+        if (poses.length > 0 && poses[0].keypoints) {
           const keypoints = poses[0].keypoints;
-          ctx.strokeStyle = "lime";
-          ctx.lineWidth = 3;
 
+          // Skeleton connections (pairs of points)
           const edges = [
-            [5,7],[7,9],   // left arm
-            [6,8],[8,10],  // right arm
-            [5,6],         // shoulders
-            [5,11],[6,12], // torso
-            [11,13],[13,15], // left leg
-            [12,14],[14,16]  // right leg
+            [5,7], [7,9], [6,8], [8,10], // arms
+            [5,6], [5,11], [6,12],       // shoulders/torso
+            [11,12], [11,13], [13,15],   // left leg
+            [12,14], [14,16]             // right leg
           ];
 
-          edges.forEach(([a,b]) => {
-            if (keypoints[a].score > 0.4 && keypoints[b].score > 0.4) {
-              ctx.beginPath();
-              ctx.moveTo(keypoints[a].x, keypoints[a].y);
-              ctx.lineTo(keypoints[b].x, keypoints[b].y);
-              ctx.stroke();
-            }
-          });
+          ctx.strokeStyle = "white";
+          ctx.lineWidth = 3;
 
-          keypoints.forEach(kp => {
-            if (kp.score > 0.4) {
-              ctx.beginPath();
-              ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
-              ctx.fillStyle = "red";
-              ctx.fill();
-            }
-          });
-        }
-
-        requestAnimationFrame(detect);
-      }
-      detect();
-    }
-    run();
-  </script>
-</body>
-</html>
+          edges.forEach(([i, j]) => {
+            const kp1 = keypoints[i];
+            const kp2 = keypoints[j];
+            if (kp1.score
